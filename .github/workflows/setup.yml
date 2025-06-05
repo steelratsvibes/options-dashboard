@@ -1,0 +1,20 @@
+name: Setup Dashboard
+on:
+  workflow_dispatch:
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run setup script
+      run: |
+        chmod +x create-all-files.sh
+        ./create-all-files.sh
+        rm create-all-files.sh
+    - name: Commit files
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        git commit -m "Setup dashboard files"
+        git push

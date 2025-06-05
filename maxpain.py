@@ -61,24 +61,36 @@ def main():
     if pathlib.Path(CACHE_FILE).exists():
         cache = json.loads(pathlib.Path(CACHE_FILE).read_text())
 
-    results = {}
-    for tkr in tickers:
-        if tkr in cache and cache_valid(cache[tkr]):
-            results[tkr] = cache[tkr]["mp"]
-            print(f"{tkr}: aus Cache → {results[tkr]}")
+       results = {}
+    for raw in tickers:
+        # akzeptiert "AAPL"  **oder**  {"symbol":"AAPL", "enabled":true}
+        if isinstance(raw, dict):
+            if not raw.get("enabled", True):
+                print(f"{raw.get('symbol')} übersprungen (disabled)")
+                continue
+            symbol = raw.get("symbol")
+        else:
+            symbol = raw
+
+        if not symbol:
             continue
 
-        print(f"{tkr}: berechne …", end="")
-        mp = calc_max_pain(tkr)
+        # Cache-Check
+        if symbol in cache and cache_valid(cache[symbol]):
+            results[symbol] = cache[symbol]["mp"]
+            print(f"{symbol}: aus Cache → {results[symbol]}")
+            continue
+
+        print(f"{symbol}: berechne …", end="")
+        mp = calc_max_pain(symbol)
         if mp:
             print(f"  MaxPain {mp}")
-            results[tkr] = mp
-            cache[tkr] = {"mp": mp, "ts": dt.datetime.now().isoformat()}
+            results[symbol] = mp
+            cache[symbol] = {"mp": mp, "ts": dt.datetime.now().isoformat()}
         else:
             print("  keine Daten")
 
-        # Friendly delay gegen Rate-Limits
-        time.sleep(1)
+        time.sleep(1)   # freundliche Pause
 
     # Dateien schreiben
     pathlib.Path(OUTPUT_FILE).write_text(json.dumps(results, indent=2))

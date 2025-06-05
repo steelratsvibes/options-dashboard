@@ -1,81 +1,89 @@
-import json
+#!/usr/bin/env python3
+"""
+Minimal-robustes Max-Pain-Skript für GitHub Actions
+– liest tickers.json (Array aus Strings)
+– nimmt stets das nächstliegende Verfallsdatum
+– speichert Ergebnisse + 24-h-Cache in maxpain.json
+"""
+import json, time, pathlib, datetime as dt
 import yfinance as yf
-from datetime import datetime
+from typing import Dict, List, Optional
 
-def calculate_max_pain(symbol):
+# ---------------- Einstellungen ---------------- #
+TICKER_FILE      = "tickers.json"
+OUTPUT_FILE      = "maxpain.json"
+CACHE_FILE       = "maxpain_cache.json"
+CACHE_HOURS      = 24            # Yahoo-OI verändert sich nur über Nacht
+MIN_OPEN_INTEREST = 10           # alles darunter ignorieren
+# ------------------------------------------------ #
+
+def load_tickers(path: str) -> List[str]:
+    return json.loads(pathlib.Path(path).read_text())
+
+def cache_valid(entry: Dict) -> bool:
     try:
-        stock = yf.Ticker(symbol)
-        
-        # Hole alle verfügbaren Optionen-Verfallsdaten
-        exp_dates = stock.options
-        
-        if not exp_dates:
-            return None
-            
-        # Nimm das nächste Verfallsdatum
-        next_expiry = exp_dates[0]
-        
-        # Hole Options-Chain
-        opt_chain = stock.option_chain(next_expiry)
-        calls = opt_chain.calls
-        puts = opt_chain.puts
-        
-        # Berechne Max Pain
-        strikes = sorted(set(calls['strike'].tolist() + puts['strike'].tolist()))
-        
-        max_pain_value = 0
-        max_pain_strike = 0
-        
-        for strike in strikes:
-            call_pain = 0
-            put_pain = 0
-            
-            # Berechne Call Pain
-            call_otm = calls[calls['strike'] < strike]
-            if not call_otm.empty:
-                call_pain = sum(call_otm['openInterest'] * (strike - call_otm['strike']))
-            
-            # Berechne Put Pain
-            put_otm = puts[puts['strike'] > strike]
-            if not put_otm.empty:
-                put_pain = sum(put_otm['openInterest'] * (put_otm['strike'] - strike))
-            
-            total_pain = call_pain + put_pain
-            
-            if max_pain_value == 0 or total_pain < max_pain_value:
-                max_pain_value = total_pain
-                max_pain_strike = strike
-        
-        return {
-            'maxPain': max_pain_strike,
-            'expiryDate': next_expiry,
-            'lastUpdate': datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        print(f"Fehler bei {symbol}: {str(e)}")
+        ts = dt.datetime.fromisoformat(entry["ts"])
+        return dt.datetime.now() - ts < dt.timedelta(hours=CACHE_HOURS)
+    except Exception:
+        return False
+
+def calc_max_pain(symbol: str) -> Optional[float]:
+    tk = yf.Ticker(symbol)
+    if not tk.options:
+        return None
+    expiry = tk.options[0]
+    chain  = tk.option_chain(expiry)
+    calls, puts = chain.calls, chain.puts
+
+    # Filter Open Interest
+    calls = calls[calls.openInterest >= MIN_OPEN_INTEREST]
+    puts  = puts[puts.openInterest  >= MIN_OPEN_INTEREST]
+
+    if calls.empty and puts.empty:
         return None
 
+    strikes = sorted(set(calls.strike.tolist() + puts.strike.tolist()))
+    best_strike, best_pain = None, float("inf")
+
+    for strike in strikes:
+        pain_calls = ((strike - calls[calls.strike < strike].strike) *
+                      calls[calls.strike < strike].openInterest).sum()
+        pain_puts  = ((puts[puts.strike > strike].strike - strike) *
+                      puts[puts.strike > strike].openInterest).sum()
+        total_pain = pain_calls + pain_puts
+        if total_pain < best_pain:
+            best_pain, best_strike = total_pain, strike
+    return float(best_strike) if best_strike is not None else None
+
 def main():
-    # Lade Ticker-Liste
-    with open('tickers.json', 'r') as f:
-        tickers = json.load(f)
-    
-    max_pain_data = {}
-    
-    # Berechne Max Pain für jeden Ticker
-    for ticker in tickers:
-        symbol = ticker['symbol']
-        print(f"Berechne Max Pain für {symbol}...")
-        result = calculate_max_pain(symbol)
-        if result:
-            max_pain_data[symbol] = result
-    
-    # Speichere Ergebnisse
-    with open('maxpain_data.json', 'w') as f:
-        json.dump(max_pain_data, f, indent=2)
-    
-    print("Max Pain Berechnung abgeschlossen!")
+    tickers = load_tickers(TICKER_FILE)
+    cache   = {}
+    if pathlib.Path(CACHE_FILE).exists():
+        cache = json.loads(pathlib.Path(CACHE_FILE).read_text())
+
+    results = {}
+    for tkr in tickers:
+        if tkr in cache and cache_valid(cache[tkr]):
+            results[tkr] = cache[tkr]["mp"]
+            print(f"{tkr}: aus Cache → {results[tkr]}")
+            continue
+
+        print(f"{tkr}: berechne …", end="")
+        mp = calc_max_pain(tkr)
+        if mp:
+            print(f"  MaxPain {mp}")
+            results[tkr] = mp
+            cache[tkr] = {"mp": mp, "ts": dt.datetime.now().isoformat()}
+        else:
+            print("  keine Daten")
+
+        # Friendly delay gegen Rate-Limits
+        time.sleep(1)
+
+    # Dateien schreiben
+    pathlib.Path(OUTPUT_FILE).write_text(json.dumps(results, indent=2))
+    pathlib.Path(CACHE_FILE).write_text(json.dumps(cache, indent=2))
+    print(f"\nFertig – {len(results)} Werte in {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     main()

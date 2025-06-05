@@ -277,7 +277,8 @@
             try {
                 const response = await fetch('maxpain_data.json');
                 if (response.ok) {
-                    const maxPainData = await response.json();
+                    const maxpain   = await (await fetch('maxpain.json')).json()
+                       .catch(() => ({}));   // falls Datei mal nicht existiert
                     
                     for (const [symbol, data] of Object.entries(maxPainData)) {
                         const element = document.getElementById(`maxPain-${symbol}`);

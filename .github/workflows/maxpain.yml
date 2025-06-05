@@ -2,31 +2,49 @@ name: Update Max Pain Data
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Alle 6 Stunden
-  workflow_dispatch:  # Manuell auslösbar
+    - cron: "0 */6 * * *"      # alle 6 Stunden
+  workflow_dispatch:           # manuell auslösbar
+
+# Schreib-Rechte für Push
+permissions:
+  contents: write
 
 jobs:
   update-max-pain:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
-    - name: Install dependencies
-      run: |
-        pip install yfinance
-    
-    - name: Run Max Pain calculation
-      run: python maxpain.py
-    
-    - name: Commit and push if changed
-      run: |
-        git config --global user.name 'GitHub Action'
-        git config --global user.email 'action@github.com'
-        git add maxpain_data.json
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Update max pain data" && git push)
+      # --- Repo klonen (ganze Historie, damit git pull funktioniert) ---
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # wichtig für rebase
+
+      # --- Python-Umgebung ---
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"    # oder 3.9/3.10 – wie du magst
+
+      - name: Install dependencies
+        run: pip install yfinance
+
+      # --- Max-Pain berechnen ---
+      - name: Run Max Pain calculation
+        run: python maxpain.py      # schreibt maxpain.json
+
+      # --- Änderungen committen & sauber pushen ---
+      - name: Commit & push if changed
+        run: |
+          git config --global user.name  "GitHub Action"
+          git config --global user.email "action@users.noreply.github.com"
+
+          git add maxpain.json            # <— Dateiname an HTML/Skript anpassen
+          # nichts zu committen? → sofort raus
+          git diff --cached --quiet && { echo "No changes"; exit 0; }
+
+          git commit -m "chore: update max pain data"
+
+          # holt eventuelle neue Commits & setzt unseren obendrauf
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin HEAD:"${GITHUB_REF_NAME}"

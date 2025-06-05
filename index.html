@@ -275,7 +275,7 @@
 
         async function fetchMaxPainData() {
             try {
-                const response = await fetch('maxpain_data.json');
+                const response = await fetch('maxpain.json');
                 if (response.ok) {
                     const maxpain   = await (await fetch('maxpain.json')).json()
                        .catch(() => ({}));   // falls Datei mal nicht existiert

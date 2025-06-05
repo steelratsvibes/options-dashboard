@@ -11,7 +11,7 @@ Ein Live-Dashboard für Aktienoptionen mit Max Pain Berechnung.
 
 ## Live Demo
 
-[https://[IHR-USERNAME].github.io/options-dashboard/](https://[IHR-USERNAME].github.io/options-dashboard/)
+[https://steelratsvibes.github.io/options-dashboard/](https://steelratsvibes.github.io/options-dashboard/)
 
 ## Ticker hinzufügen
 

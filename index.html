@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Options Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .ticker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .ticker-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .ticker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .ticker-symbol {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .ticker-price {
+            font-size: 20px;
+        }
+        .ticker-change {
+            font-size: 16px;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .positive {
+            color: green;
+            background-color: #e8f5e9;
+        }
+        .negative {
+            color: red;
+            background-color: #ffebee;
+        }
+        .ticker-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            color: red;
+            text-align: center;
+            padding: 20px;
+        }
+        .last-update {
+            text-align: center;
+            color: #666;
+            margin-top: 20px;
+        }
+        .max-pain-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .controls button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .controls button:hover {
+            background-color: #1976D2;
+        }
+        .controls button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Options Dashboard</h1>
+        <div class="controls">
+            <button onclick="refreshData()">Daten aktualisieren</button>
+            <button id="autoRefreshBtn" onclick="toggleAutoRefresh()">Auto-Refresh: AUS</button>
+        </div>
+        <div id="loading" class="loading">Lade Daten...</div>
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="tickerGrid" class="ticker-grid"></div>
+        <div id="lastUpdate" class="last-update"></div>
+    </div>
+
+    <script>
+        let tickers = [];
+        let autoRefreshInterval = null;
+        let isAutoRefresh = false;
+
+        async function loadTickers() {
+            try {
+                const response = await fetch('tickers.json');
+                tickers = await response.json();
+                await updateAllTickers();
+            } catch (error) {
+                showError('Fehler beim Laden der Ticker-Liste');
+            }
+        }
+
+        async function fetchTickerData(symbol) {
+            try {
+                const response = await fetch(`https://query2.finance.yahoo.com/v8/finance/chart/${symbol}`);
+                const data = await response.json();
+                
+                if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+                    throw new Error('Keine Daten verfügbar');
+                }
+                
+                const result = data.chart.result[0];
+                const quote = result.indicators.quote[0];
+                const lastIndex = quote.close.length - 1;
+                
+                const currentPrice = quote.close[lastIndex] || result.meta.regularMarketPrice;
+                const previousClose = result.meta.previousClose || result.meta.chartPreviousClose;
+                const change = currentPrice - previousClose;
+                const changePercent = (change / previousClose) * 100;
+                
+                return {
+                    symbol: result.meta.symbol,
+                    price: currentPrice,
+                    change: change,
+                    changePercent: changePercent,
+                    volume: quote.volume[lastIndex] || 0,
+                    dayHigh: result.meta.regularMarketDayHigh || Math.max(...quote.high.filter(h => h !== null)),
+                    dayLow: result.meta.regularMarketDayLow || Math.min(...quote.low.filter(l => l !== null)),
+                    previousClose: previousClose,
+                    marketCap: result.meta.marketCap || 'N/A',
+                    maxPain: 'Berechnung läuft...'
+                };
+            } catch (error) {
+                console.error(`Fehler beim Abrufen von ${symbol}:`, error);
+                return null;
+            }
+        }
+
+        async function updateAllTickers() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            const grid = document.getElementById('tickerGrid');
+            grid.innerHTML = '';
+
+            for (const ticker of tickers) {
+                const data = await fetchTickerData(ticker.symbol);
+                if (data) {
+                    createTickerCard(data, ticker.name);
+                }
+            }
+
+            document.getElementById('loading').style.display = 'none';
+            updateLastUpdateTime();
+            
+            // Max Pain Daten abrufen (falls verfügbar)
+            fetchMaxPainData();
+        }
+
+        function createTickerCard(data, name) {
+            const card = document.createElement('div');
+            card.className = 'ticker-card';
+            
+            const changeClass = data.change >= 0 ? 'positive' : 'negative';
+            const changeSymbol = data.change >= 0 ? '+' : '';
+            
+            card.innerHTML = `
+                <div class="ticker-header">
+                    <div>
+                        <div class="ticker-symbol">${data.symbol}</div>
+                        <div style="color: #666; font-size: 14px;">${name}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div class="ticker-price">$${data.price.toFixed(2)}</div>
+                        <div class="ticker-change ${changeClass}">
+                            ${changeSymbol}${data.change.toFixed(2)} (${changeSymbol}${data.changePercent.toFixed(2)}%)
+                        </div>
+                    </div>
+                </div>
+                <div class="ticker-details">
+                    <div class="detail-item">
+                        <span>Tageshoch:</span>
+                        <span>$${typeof data.dayHigh === 'number' ? data.dayHigh.toFixed(2) : 'N/A'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span>Tagestief:</span>
+                        <span>$${typeof data.dayLow === 'number' ? data.dayLow.toFixed(2) : 'N/A'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span>Vortag:</span>
+                        <span>$${data.previousClose.toFixed(2)}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span>Volumen:</span>
+                        <span>${formatVolume(data.volume)}</span>
+                    </div>
+                </div>
+                <div class="max-pain-info" id="maxPain-${data.symbol}">
+                    <strong>Max Pain:</strong> ${data.maxPain}
+                </div>
+            `;
+            
+            document.getElementById('tickerGrid').appendChild(card);
+        }
+
+        async function fetchMaxPainData() {
+            try {
+                const response = await fetch('maxpain_data.json');
+                if (response.ok) {
+                    const maxPainData = await response.json();
+                    
+                    for (const [symbol, data] of Object.entries(maxPainData)) {
+                        const element = document.getElementById(`maxPain-${symbol}`);
+                        if (element && data.maxPain) {
+                            element.innerHTML = `
+                                <strong>Max Pain:</strong> $${data.maxPain}<br>
+                                <small>Datum: ${data.expiryDate}</small>
+                            `;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log('Max Pain Daten noch nicht verfügbar');
+            }
+        }
+
+        function formatVolume(volume) {
+            if (volume >= 1000000) {
+                return (volume / 1000000).toFixed(1) + 'M';
+            } else if (volume >= 1000) {
+                return (volume / 1000).toFixed(1) + 'K';
+            }
+            return volume.toString();
+        }
+
+        function updateLastUpdateTime() {
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = 
+                `Letzte Aktualisierung: ${now.toLocaleTimeString('de-DE')}`;
+        }
+
+        function showError(message) {
+            document.getElementById('error').textContent = message;
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function refreshData() {
+            updateAllTickers();
+        }
+
+        function toggleAutoRefresh() {
+            isAutoRefresh = !isAutoRefresh;
+            const btn = document.getElementById('autoRefreshBtn');
+            
+            if (isAutoRefresh) {
+                btn.textContent = 'Auto-Refresh: AN';
+                btn.style.backgroundColor = '#4CAF50';
+                autoRefreshInterval = setInterval(updateAllTickers, 60000); // Alle 60 Sekunden
+            } else {
+                btn.textContent = 'Auto-Refresh: AUS';
+                btn.style.backgroundColor = '#2196F3';
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                }
+            }
+        }
+
+        // Initiales Laden
+        loadTickers();
+    </script>
+</body>
+</html>

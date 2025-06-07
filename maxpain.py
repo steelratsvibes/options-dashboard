@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Minimal-robustes Max-Pain-Skript für GitHub Actions
-– liest tickers.json (Array aus Strings)
+– liest tickers.json (Array aus Objekten mit mindestens dem Schlüssel "symbol" 
+  und optionalen Metadaten wie "name" oder "enabled")
 – nimmt stets das nächstliegende Verfallsdatum
 – speichert Ergebnisse + 24-h-Cache in maxpain.json
 """
@@ -61,7 +62,7 @@ def main():
     if pathlib.Path(CACHE_FILE).exists():
         cache = json.loads(pathlib.Path(CACHE_FILE).read_text())
 
-       results = {}
+    results = {}
     for raw in tickers:
         # akzeptiert "AAPL"  **oder**  {"symbol":"AAPL", "enabled":true}
         if isinstance(raw, dict):
